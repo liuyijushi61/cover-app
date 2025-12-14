@@ -270,9 +270,10 @@ const CoverGenerator = () => {
   ];
 
   const ratioOptions = [
-    { name: '公号拼接', w: 1335, h: 400, ratio: 3.35, icon: <Columns size={16} />, isSplit: true },
-    { name: '公号首图', w: 900, h: 383, ratio: 2.35, icon: <Monitor size={16} /> },
-    { name: '公号次图', w: 500, h: 500, ratio: 1, icon: <ImageIcon size={16} /> },
+    // 公号拼接：左 900×383 (2.35:1) + 右 383×383 (1:1) = 1283×383
+    { name: '公号拼接', w: 1283, h: 383, ratio: 1283 / 383, icon: <Columns size={16} />, isSplit: true },
+    { name: '公号首图', w: 900, h: 383, ratio: 900 / 383, icon: <Monitor size={16} /> },
+    { name: '公号次图', w: 383, h: 383, ratio: 1, icon: <ImageIcon size={16} /> },
     { name: '4:3', w: 800, h: 600, ratio: 4 / 3, icon: <Layout size={16} /> },
     { name: '3:4', w: 600, h: 800, ratio: 3 / 4, icon: <Smartphone size={16} /> },
     { name: '16:9', w: 960, h: 540, ratio: 16 / 9, icon: <Monitor size={16} /> },
@@ -594,7 +595,7 @@ const CoverGenerator = () => {
             <div
               className={`relative flex flex-col items-center justify-center text-center overflow-hidden ${activePanel === 'left' ? 'ring-2 ring-purple-500' : ''}`}
               style={{
-                flex: '2.35',
+                flex: '900',  // 首图宽度比例
                 background: bgMode === 'gradient'
                   ? `radial-gradient(circle at center, ${selectedGradient.from} 0%, ${selectedGradient.from} 15%, ${selectedGradient.to} 75%, ${selectedGradient.to} 100%)`
                   : bgColor,
@@ -702,7 +703,7 @@ const CoverGenerator = () => {
             <div
               className={`relative flex flex-col items-center justify-center text-center overflow-hidden ${activePanel === 'right' ? 'ring-2 ring-purple-500' : ''}`}
               style={{
-                flex: '1',
+                flex: '383',  // 次图宽度比例
                 background: bgModeRight === 'gradient'
                   ? `radial-gradient(circle at center, ${selectedGradientRight.from} 0%, ${selectedGradientRight.from} 15%, ${selectedGradientRight.to} 75%, ${selectedGradientRight.to} 100%)`
                   : bgColorRight,
