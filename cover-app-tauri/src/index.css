@@ -120,3 +120,17 @@ body {
   height: 100vh;
   overflow: hidden;
 }
+
+/* 导出模式 - 禁用可能导致字体晕染的样式 */
+.export-mode h1,
+.export-mode p,
+.export-mode div {
+  text-shadow: none !important;
+  -webkit-font-smoothing: antialiased !important;
+  -moz-osx-font-smoothing: grayscale !important;
+}
+
+/* 导出模式 - 禁用可能影响渲染的混合模式 */
+.export-mode [style*="mixBlendMode"] {
+  mix-blend-mode: normal !important;
+}

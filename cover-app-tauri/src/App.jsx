@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Download, Type, Palette, Layout, Move, RefreshCcw, Monitor, Smartphone, Image as ImageIcon, User, Sliders, MousePointer2, Layers } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { Download, Type, Palette, Layout, Move, RefreshCcw, Monitor, Smartphone, Image as ImageIcon, User, Sliders, MousePointer2, Layers, Columns } from 'lucide-react';
+import { toPng } from 'html-to-image';
 
 // --- 配置常量 ---
 const DEFAULT_CONFIG = {
@@ -143,8 +143,21 @@ const CoverGenerator = () => {
   const [textureMode, setTextureMode] = useState('film');
   // 渐变背景相关状态
   const [bgMode, setBgMode] = useState('solid'); // 'solid' | 'gradient'
-  const [selectedGradient, setSelectedGradient] = useState({ name: '暖阳', from: '#fffbeb', to: '#fff1f2' });
+  const [selectedGradient, setSelectedGradient] = useState({ name: '暖阳', from: '#fcd34d', to: '#fffbeb' });
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+
+  // --- 拼接模式相关状态 ---
+  const [isSplitMode, setIsSplitMode] = useState(false);
+  const [activePanel, setActivePanel] = useState('left'); // 'left' | 'right'
+  const [syncEdit, setSyncEdit] = useState(true); // 同步修改开关
+
+  // 右侧区域独立状态
+  const [elementsRight, setElementsRight] = useState(JSON.parse(JSON.stringify(DEFAULT_CONFIG)));
+  const [bgColorRight, setBgColorRight] = useState('#1e293b');
+  const [textColorRight, setTextColorRight] = useState('#f5f5f5');
+  const [bgModeRight, setBgModeRight] = useState('solid');
+  const [selectedGradientRight, setSelectedGradientRight] = useState({ name: '暖阳', from: '#fcd34d', to: '#fffbeb' });
+  const [textureModeRight, setTextureModeRight] = useState('film');
 
   const canvasRef = useRef(null);
   const grainUrl = useFilmGrain();
@@ -178,6 +191,23 @@ const CoverGenerator = () => {
       ...prev,
       [id]: { ...prev[id], [key]: value }
     }));
+  };
+
+  // 拼接模式下的更新函数
+  const updateElementSplit = (id, key, value) => {
+    if (!id) return;
+    if (activePanel === 'left' || syncEdit) {
+      setElements(prev => ({ ...prev, [id]: { ...prev[id], [key]: value } }));
+    }
+    if (activePanel === 'right' || syncEdit) {
+      setElementsRight(prev => ({ ...prev, [id]: { ...prev[id], [key]: value } }));
+    }
+  };
+
+  // 通用状态更新函数
+  const updateStateSplit = (leftSetter, rightSetter, value) => {
+    if (activePanel === 'left' || syncEdit) leftSetter(value);
+    if (activePanel === 'right' || syncEdit) rightSetter(value);
   };
 
   const handleReset = () => {
@@ -240,6 +270,7 @@ const CoverGenerator = () => {
   ];
 
   const ratioOptions = [
+    { name: '公号拼接', w: 1335, h: 400, ratio: 3.35, icon: <Columns size={16} />, isSplit: true },
     { name: '公号首图', w: 900, h: 383, ratio: 2.35, icon: <Monitor size={16} /> },
     { name: '公号次图', w: 500, h: 500, ratio: 1, icon: <ImageIcon size={16} /> },
     { name: '4:3', w: 800, h: 600, ratio: 4 / 3, icon: <Layout size={16} /> },
@@ -257,18 +288,36 @@ const CoverGenerator = () => {
     try {
       const tempId = selectedId;
       setSelectedId(null);
-      await new Promise(resolve => setTimeout(resolve, 100));
 
-      const canvas = await html2canvas(canvasRef.current, {
-        scale: 2,
-        backgroundColor: null, // 让 html2canvas 自动捕获实际背景（包括渐变）
-        useCORS: true,
-        foreignObjectRendering: false
+      // 获取目标高清尺寸
+      const targetWidth = customRatio.w;
+      const targetHeight = customRatio.h;
+
+      // 保存原始样式
+      const originalStyle = canvasRef.current.style.cssText;
+
+      // 临时设置为固定的高分辨率尺寸（而非百分比）
+      canvasRef.current.style.width = `${targetWidth}px`;
+      canvasRef.current.style.maxWidth = 'none';
+      canvasRef.current.style.height = `${targetHeight}px`;
+      canvasRef.current.style.aspectRatio = 'auto';
+
+      // 等待浏览器重新渲染
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // 使用 html-to-image 的 toPng（基于 SVG 渲染，字体质量更好）
+      const dataUrl = await toPng(canvasRef.current, {
+        pixelRatio: 3,  // 3倍分辨率，确保高清
+        quality: 1.0,
+        cacheBust: true,
       });
+
+      // 恢复原始样式
+      canvasRef.current.style.cssText = originalStyle;
 
       const link = document.createElement('a');
       link.download = `cover_HD_${Date.now()}.png`;
-      link.href = canvas.toDataURL('image/png');
+      link.href = dataUrl;
       link.click();
 
       setSelectedId(tempId);
@@ -279,7 +328,19 @@ const CoverGenerator = () => {
   };
 
   const effectiveId = selectedId || 'title';
-  const activeElement = elements[effectiveId];
+  // 在拼接模式下，根据当前激活面板选择对应的元素状态
+  const activeElement = isSplitMode
+    ? (activePanel === 'left' ? elements[effectiveId] : elementsRight[effectiveId])
+    : elements[effectiveId];
+
+  // 拼接模式下的元素更新函数
+  const handleElementUpdate = (id, key, value) => {
+    if (isSplitMode) {
+      updateElementSplit(id, key, value);
+    } else {
+      updateElement(id, key, value);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row font-sans text-gray-800">
@@ -306,6 +367,39 @@ const CoverGenerator = () => {
         {/* Scrollable Controls */}
         <div className="flex-1 overflow-y-auto p-4 pt-2 space-y-4">
 
+          {/* 拼接模式控制 */}
+          {isSplitMode && (
+            <div className="bg-purple-50 p-3 rounded-xl border border-purple-200 space-y-2">
+              <div className="flex items-center gap-2">
+                <Columns size={14} className="text-purple-600" />
+                <span className="text-xs font-bold text-purple-600 uppercase tracking-wider">拼接模式</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setActivePanel('left')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${activePanel === 'left' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white text-gray-600 hover:bg-purple-100'}`}
+                >
+                  ← 首图 (2.35:1)
+                </button>
+                <button
+                  onClick={() => setActivePanel('right')}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${activePanel === 'right' ? 'bg-purple-600 text-white shadow-sm' : 'bg-white text-gray-600 hover:bg-purple-100'}`}
+                >
+                  次图 (1:1) →
+                </button>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={syncEdit}
+                  onChange={(e) => setSyncEdit(e.target.checked)}
+                  className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                />
+                <span className="text-xs text-gray-600">同步修改 (两侧联动)</span>
+              </label>
+            </div>
+          )}
+
           {/* 编辑区 */}
           <div className="space-y-3 bg-blue-50/50 p-3 rounded-xl border border-blue-100">
             <div className="flex items-center gap-2 mb-2">
@@ -317,7 +411,7 @@ const CoverGenerator = () => {
 
             <textarea
               value={activeElement.text}
-              onChange={(e) => updateElement(effectiveId, 'text', e.target.value)}
+              onChange={(e) => handleElementUpdate(effectiveId, 'text', e.target.value)}
               className="w-full p-2 border border-blue-200 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white resize-none h-20"
               placeholder="输入文本..."
             />
@@ -326,7 +420,7 @@ const CoverGenerator = () => {
               <label className="text-[10px] text-gray-500 block mb-1">字体 (本地字体)</label>
               <select
                 value={activeElement.fontFamily}
-                onChange={(e) => updateElement(effectiveId, 'fontFamily', e.target.value)}
+                onChange={(e) => handleElementUpdate(effectiveId, 'fontFamily', e.target.value)}
                 className="w-full p-2 border border-gray-200 rounded text-xs bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
               >
                 {fontOptions.map(font => (
@@ -338,11 +432,11 @@ const CoverGenerator = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <span className="text-[10px] text-gray-500 block mb-1">大小 ({activeElement.fontSize}%)</span>
-                <input type="range" min="20" max="200" step="5" value={activeElement.fontSize} onChange={(e) => updateElement(effectiveId, 'fontSize', parseInt(e.target.value))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                <input type="range" min="20" max="200" step="5" value={activeElement.fontSize} onChange={(e) => handleElementUpdate(effectiveId, 'fontSize', parseInt(e.target.value))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
               </div>
               <div>
                 <span className="text-[10px] text-gray-500 block mb-1">行高 ({activeElement.lineHeight})</span>
-                <input type="range" min="0.8" max="3.0" step="0.1" value={activeElement.lineHeight} onChange={(e) => updateElement(effectiveId, 'lineHeight', parseFloat(e.target.value))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
+                <input type="range" min="0.8" max="3.0" step="0.1" value={activeElement.lineHeight} onChange={(e) => handleElementUpdate(effectiveId, 'lineHeight', parseFloat(e.target.value))} className="w-full h-1 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600" />
               </div>
             </div>
           </div>
@@ -356,14 +450,14 @@ const CoverGenerator = () => {
             {/* 质感开关 */}
             <div className="grid grid-cols-2 gap-2 mb-3">
               <button
-                onClick={() => setTextureMode('film')}
-                className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${textureMode === 'film' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
+                onClick={() => isSplitMode ? updateStateSplit(setTextureMode, setTextureModeRight, 'film') : setTextureMode('film')}
+                className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${(activePanel === 'left' ? textureMode : textureModeRight) === 'film' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
               >
                 <Layers size={14} /> 胶片颗粒
               </button>
               <button
-                onClick={() => setTextureMode('clean')}
-                className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${textureMode === 'clean' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
+                onClick={() => isSplitMode ? updateStateSplit(setTextureMode, setTextureModeRight, 'clean') : setTextureMode('clean')}
+                className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${(activePanel === 'left' ? textureMode : textureModeRight) === 'clean' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
               >
                 <div className="w-3 h-3 bg-gray-400 rounded-sm"></div> 纯净平滑
               </button>
@@ -374,14 +468,14 @@ const CoverGenerator = () => {
               <span className="text-[10px] text-gray-500 block mb-2">背景模式</span>
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <button
-                  onClick={() => setBgMode('solid')}
-                  className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${bgMode === 'solid' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
+                  onClick={() => isSplitMode ? updateStateSplit(setBgMode, setBgModeRight, 'solid') : setBgMode('solid')}
+                  className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${(activePanel === 'left' ? bgMode : bgModeRight) === 'solid' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
                 >
                   <div className="w-3 h-3 bg-slate-700 rounded-sm"></div> 纯色背景
                 </button>
                 <button
-                  onClick={() => setBgMode('gradient')}
-                  className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${bgMode === 'gradient' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
+                  onClick={() => isSplitMode ? updateStateSplit(setBgMode, setBgModeRight, 'gradient') : setBgMode('gradient')}
+                  className={`flex items-center justify-center gap-2 p-2 rounded border text-xs ${(activePanel === 'left' ? bgMode : bgModeRight) === 'gradient' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600'}`}
                 >
                   <div className="w-3 h-3 rounded-full" style={{ background: 'radial-gradient(circle at center, #fffbeb, #fff1f2)' }}></div> 渐变背景
                 </button>
@@ -389,14 +483,14 @@ const CoverGenerator = () => {
             </div>
 
             {/* 根据背景模式显示不同的选择器 */}
-            {bgMode === 'solid' ? (
+            {(activePanel === 'left' ? bgMode : bgModeRight) === 'solid' ? (
               <>
                 <div className="grid grid-cols-6 gap-2">
                   {presetBgColors.map((c) => (
                     <button
                       key={c.value}
-                      onClick={() => setBgColor(c.value)}
-                      className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none ${bgColor === c.value ? 'border-white ring-2 ring-gray-900' : 'border-transparent'}`}
+                      onClick={() => isSplitMode ? updateStateSplit(setBgColor, setBgColorRight, c.value) : setBgColor(c.value)}
+                      className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none ${(activePanel === 'left' ? bgColor : bgColorRight) === c.value ? 'border-white ring-2 ring-gray-900' : 'border-transparent'}`}
                       style={{ backgroundColor: c.value }}
                     />
                   ))}
@@ -407,8 +501,8 @@ const CoverGenerator = () => {
                 {presetGradients.map((g) => (
                   <button
                     key={g.name}
-                    onClick={() => setSelectedGradient(g)}
-                    className={`h-10 rounded-lg border-2 transition-all hover:scale-105 focus:outline-none flex items-center justify-center text-[10px] font-medium ${selectedGradient.name === g.name ? 'ring-2 ring-gray-900 border-white' : 'border-transparent'}`}
+                    onClick={() => isSplitMode ? updateStateSplit(setSelectedGradient, setSelectedGradientRight, g) : setSelectedGradient(g)}
+                    className={`h-10 rounded-lg border-2 transition-all hover:scale-105 focus:outline-none flex items-center justify-center text-[10px] font-medium ${(activePanel === 'left' ? selectedGradient : selectedGradientRight).name === g.name ? 'ring-2 ring-gray-900 border-white' : 'border-transparent'}`}
                     style={{
                       background: `radial-gradient(circle at center, ${g.from} 0%, ${g.from} 15%, ${g.to} 75%, ${g.to} 100%)`,
                       color: '#374151'
@@ -424,8 +518,8 @@ const CoverGenerator = () => {
               {presetTextColors.map((c) => (
                 <button
                   key={c.value}
-                  onClick={() => setTextColor(c.value)}
-                  className={`h-6 rounded border transition-all text-[10px] flex items-center justify-center ${textColor === c.value ? 'ring-2 ring-gray-900 border-transparent font-bold' : 'border-gray-200 hover:bg-gray-50'}`}
+                  onClick={() => isSplitMode ? updateStateSplit(setTextColor, setTextColorRight, c.value) : setTextColor(c.value)}
+                  className={`h-6 rounded border transition-all text-[10px] flex items-center justify-center ${(activePanel === 'left' ? textColor : textColorRight) === c.value ? 'ring-2 ring-gray-900 border-transparent font-bold' : 'border-gray-200 hover:bg-gray-50'}`}
                   style={{ backgroundColor: c.value, color: '#333' }}
                 >
                   {c.name}
@@ -446,8 +540,10 @@ const CoverGenerator = () => {
                   onClick={() => {
                     setAspectRatio(opt.ratio);
                     setCustomRatio({ w: opt.w, h: opt.h });
+                    setIsSplitMode(opt.isSplit || false);
+                    if (opt.isSplit) setActivePanel('left');
                   }}
-                  className={`p-2 flex flex-col items-center justify-center gap-1 rounded border text-xs transition-all ${Math.abs(aspectRatio - opt.ratio) < 0.01 ? 'bg-gray-900 text-white border-gray-900' : 'bg-white hover:bg-gray-50'}`}
+                  className={`p-2 flex flex-col items-center justify-center gap-1 rounded border text-xs transition-all ${Math.abs(aspectRatio - opt.ratio) < 0.01 && isSplitMode === (opt.isSplit || false) ? 'bg-gray-900 text-white border-gray-900' : 'bg-white hover:bg-gray-50'}`}
                 >
                   {opt.icon}
                   <span>{opt.name}</span>
@@ -481,120 +577,352 @@ const CoverGenerator = () => {
         }}></div>
 
         {/* 画布核心 */}
-        <div
-          ref={canvasRef}
-          className="relative flex flex-col items-center justify-center text-center shadow-2xl transition-all duration-300 overflow-hidden"
-          style={{
-            width: '100%',
-            maxWidth: `${customRatio.w}px`,
-            aspectRatio: `${aspectRatio}`,
-            background: bgMode === 'gradient'
-              ? `radial-gradient(circle at center, ${selectedGradient.from} 0%, ${selectedGradient.from} 15%, ${selectedGradient.to} 75%, ${selectedGradient.to} 100%)`
-              : bgColor,
-            color: textColor,
-            padding: '2rem',
-          }}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* 1. 胶片颗粒层 */}
-          {textureMode === 'film' && (
-            <div
-              className="absolute inset-0 pointer-events-none z-0"
-              style={{
-                backgroundImage: `url(${grainUrl})`,
-                backgroundSize: '200px 200px',
-                opacity: 0.15,
-                mixBlendMode: 'overlay'
-              }}
-            ></div>
-          )}
-
-          {/* 2. 内边框装饰 */}
-          <div className="absolute inset-4 border border-current opacity-20 pointer-events-none mix-blend-overlay z-0"></div>
-
-          {/* 3. 元素层 */}
-          <DraggableElement
-            id="title"
-            isSelected={selectedId === 'title'}
-            offset={elements.title.offset}
-            onSelect={setSelectedId}
-            onDrag={(id, pos) => updateElement(id, 'offset', pos)}
-            className="relative z-10 p-2"
+        {isSplitMode ? (
+          /* 拼接模式: 双区域并排渲染 */
+          <div
+            ref={canvasRef}
+            className="flex shadow-2xl transition-all duration-300 overflow-hidden"
+            style={{
+              width: '100%',
+              maxWidth: `${customRatio.w}px`,
+              aspectRatio: `${aspectRatio}`,
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
-            {(() => {
-              const font = fontOptions.find(f => f.id === elements.title.fontFamily) || fontOptions[0];
-              return (
-                <h1
-                  className="font-bold leading-tight select-none break-words whitespace-pre-wrap"
+            {/* 左区域 - 首图 2.35:1 */}
+            <div
+              className={`relative flex flex-col items-center justify-center text-center overflow-hidden ${activePanel === 'left' ? 'ring-2 ring-purple-500' : ''}`}
+              style={{
+                flex: '2.35',
+                background: bgMode === 'gradient'
+                  ? `radial-gradient(circle at center, ${selectedGradient.from} 0%, ${selectedGradient.from} 15%, ${selectedGradient.to} 75%, ${selectedGradient.to} 100%)`
+                  : bgColor,
+                color: textColor,
+                padding: '1.5rem',
+              }}
+              onClick={() => setActivePanel('left')}
+            >
+              {/* 胶片颗粒层 */}
+              {textureMode === 'film' && (
+                <div
+                  className="absolute inset-0 pointer-events-none z-0"
                   style={{
-                    fontFamily: font.css,
-                    fontWeight: font.weight,
-                    textShadow: '0 2px 10px rgba(0,0,0,0.15)',
-                    lineHeight: elements.title.lineHeight,
-                    fontSize: `${4 * (elements.title.fontSize / 100)}rem`
+                    backgroundImage: `url(${grainUrl})`,
+                    backgroundSize: '200px 200px',
+                    opacity: 0.15,
+                    mixBlendMode: 'overlay'
                   }}
+                ></div>
+              )}
+              {/* 内边框装饰 */}
+              <div className="absolute inset-3 border border-current opacity-20 pointer-events-none mix-blend-overlay z-0"></div>
+              {/* 元素层 */}
+              <DraggableElement
+                id="title"
+                isSelected={selectedId === 'title' && activePanel === 'left'}
+                offset={elements.title.offset}
+                onSelect={(id) => { setSelectedId(id); setActivePanel('left'); }}
+                onDrag={(id, pos) => isSplitMode ? updateElementSplit(id, 'offset', pos) : updateElement(id, 'offset', pos)}
+                className="relative z-10 p-2"
+              >
+                {(() => {
+                  const font = fontOptions.find(f => f.id === elements.title.fontFamily) || fontOptions[0];
+                  return (
+                    <h1
+                      className="font-bold leading-tight select-none break-words whitespace-pre-wrap"
+                      style={{
+                        fontFamily: font.css,
+                        fontWeight: font.weight,
+                        textShadow: '0 2px 10px rgba(0,0,0,0.15)',
+                        lineHeight: elements.title.lineHeight,
+                        fontSize: `${2.5 * (elements.title.fontSize / 100)}rem`
+                      }}
+                    >
+                      {elements.title.text}
+                    </h1>
+                  );
+                })()}
+              </DraggableElement>
+              {elements.subtitle.text && (
+                <DraggableElement
+                  id="subtitle"
+                  isSelected={selectedId === 'subtitle' && activePanel === 'left'}
+                  offset={elements.subtitle.offset}
+                  onSelect={(id) => { setSelectedId(id); setActivePanel('left'); }}
+                  onDrag={(id, pos) => isSplitMode ? updateElementSplit(id, 'offset', pos) : updateElement(id, 'offset', pos)}
+                  className="relative z-10 p-2"
                 >
-                  {elements.title.text}
-                </h1>
-              );
-            })()}
-          </DraggableElement>
+                  {(() => {
+                    const font = fontOptions.find(f => f.id === elements.subtitle.fontFamily) || fontOptions[0];
+                    return (
+                      <p
+                        className="tracking-[0.2em] opacity-80 uppercase select-none font-serif whitespace-pre-wrap"
+                        style={{
+                          fontFamily: font.css,
+                          fontWeight: font.weight,
+                          lineHeight: elements.subtitle.lineHeight,
+                          fontSize: `${1 * (elements.subtitle.fontSize / 100)}rem`
+                        }}
+                      >
+                        {elements.subtitle.text}
+                      </p>
+                    );
+                  })()}
+                </DraggableElement>
+              )}
+              <DraggableElement
+                id="author"
+                isSelected={selectedId === 'author' && activePanel === 'left'}
+                offset={elements.author.offset}
+                onSelect={(id) => { setSelectedId(id); setActivePanel('left'); }}
+                onDrag={(id, pos) => isSplitMode ? updateElementSplit(id, 'offset', pos) : updateElement(id, 'offset', pos)}
+                className="absolute bottom-4 z-10 p-2"
+              >
+                {(() => {
+                  const font = fontOptions.find(f => f.id === elements.author.fontFamily) || fontOptions[3];
+                  return (
+                    <div
+                      className="opacity-40 tracking-widest select-none whitespace-pre-wrap"
+                      style={{
+                        fontFamily: font.css,
+                        fontWeight: font.weight,
+                        lineHeight: elements.author.lineHeight,
+                        fontSize: `${0.5 * (elements.author.fontSize / 100)}rem`
+                      }}
+                    >
+                      {elements.author.text}
+                    </div>
+                  );
+                })()}
+              </DraggableElement>
+            </div>
 
-          {elements.subtitle.text && (
+            {/* 右区域 - 次图 1:1 */}
+            <div
+              className={`relative flex flex-col items-center justify-center text-center overflow-hidden ${activePanel === 'right' ? 'ring-2 ring-purple-500' : ''}`}
+              style={{
+                flex: '1',
+                background: bgModeRight === 'gradient'
+                  ? `radial-gradient(circle at center, ${selectedGradientRight.from} 0%, ${selectedGradientRight.from} 15%, ${selectedGradientRight.to} 75%, ${selectedGradientRight.to} 100%)`
+                  : bgColorRight,
+                color: textColorRight,
+                padding: '1.5rem',
+              }}
+              onClick={() => setActivePanel('right')}
+            >
+              {/* 胶片颗粒层 */}
+              {textureModeRight === 'film' && (
+                <div
+                  className="absolute inset-0 pointer-events-none z-0"
+                  style={{
+                    backgroundImage: `url(${grainUrl})`,
+                    backgroundSize: '200px 200px',
+                    opacity: 0.15,
+                    mixBlendMode: 'overlay'
+                  }}
+                ></div>
+              )}
+              {/* 内边框装饰 */}
+              <div className="absolute inset-3 border border-current opacity-20 pointer-events-none mix-blend-overlay z-0"></div>
+              {/* 元素层 */}
+              <DraggableElement
+                id="title"
+                isSelected={selectedId === 'title' && activePanel === 'right'}
+                offset={elementsRight.title.offset}
+                onSelect={(id) => { setSelectedId(id); setActivePanel('right'); }}
+                onDrag={(id, pos) => isSplitMode ? updateElementSplit(id, 'offset', pos) : updateElement(id, 'offset', pos)}
+                className="relative z-10 p-2"
+              >
+                {(() => {
+                  const font = fontOptions.find(f => f.id === elementsRight.title.fontFamily) || fontOptions[0];
+                  return (
+                    <h1
+                      className="font-bold leading-tight select-none break-words whitespace-pre-wrap"
+                      style={{
+                        fontFamily: font.css,
+                        fontWeight: font.weight,
+                        textShadow: '0 2px 10px rgba(0,0,0,0.15)',
+                        lineHeight: elementsRight.title.lineHeight,
+                        fontSize: `${2.5 * (elementsRight.title.fontSize / 100)}rem`
+                      }}
+                    >
+                      {elementsRight.title.text}
+                    </h1>
+                  );
+                })()}
+              </DraggableElement>
+              {elementsRight.subtitle.text && (
+                <DraggableElement
+                  id="subtitle"
+                  isSelected={selectedId === 'subtitle' && activePanel === 'right'}
+                  offset={elementsRight.subtitle.offset}
+                  onSelect={(id) => { setSelectedId(id); setActivePanel('right'); }}
+                  onDrag={(id, pos) => isSplitMode ? updateElementSplit(id, 'offset', pos) : updateElement(id, 'offset', pos)}
+                  className="relative z-10 p-2"
+                >
+                  {(() => {
+                    const font = fontOptions.find(f => f.id === elementsRight.subtitle.fontFamily) || fontOptions[0];
+                    return (
+                      <p
+                        className="tracking-[0.2em] opacity-80 uppercase select-none font-serif whitespace-pre-wrap"
+                        style={{
+                          fontFamily: font.css,
+                          fontWeight: font.weight,
+                          lineHeight: elementsRight.subtitle.lineHeight,
+                          fontSize: `${1 * (elementsRight.subtitle.fontSize / 100)}rem`
+                        }}
+                      >
+                        {elementsRight.subtitle.text}
+                      </p>
+                    );
+                  })()}
+                </DraggableElement>
+              )}
+              <DraggableElement
+                id="author"
+                isSelected={selectedId === 'author' && activePanel === 'right'}
+                offset={elementsRight.author.offset}
+                onSelect={(id) => { setSelectedId(id); setActivePanel('right'); }}
+                onDrag={(id, pos) => isSplitMode ? updateElementSplit(id, 'offset', pos) : updateElement(id, 'offset', pos)}
+                className="absolute bottom-4 z-10 p-2"
+              >
+                {(() => {
+                  const font = fontOptions.find(f => f.id === elementsRight.author.fontFamily) || fontOptions[3];
+                  return (
+                    <div
+                      className="opacity-40 tracking-widest select-none whitespace-pre-wrap"
+                      style={{
+                        fontFamily: font.css,
+                        fontWeight: font.weight,
+                        lineHeight: elementsRight.author.lineHeight,
+                        fontSize: `${0.5 * (elementsRight.author.fontSize / 100)}rem`
+                      }}
+                    >
+                      {elementsRight.author.text}
+                    </div>
+                  );
+                })()}
+              </DraggableElement>
+            </div>
+          </div>
+        ) : (
+          /* 普通模式: 单画布渲染 */
+          <div
+            ref={canvasRef}
+            className="relative flex flex-col items-center justify-center text-center shadow-2xl transition-all duration-300 overflow-hidden"
+            style={{
+              width: '100%',
+              maxWidth: `${customRatio.w}px`,
+              aspectRatio: `${aspectRatio}`,
+              background: bgMode === 'gradient'
+                ? `radial-gradient(circle at center, ${selectedGradient.from} 0%, ${selectedGradient.from} 15%, ${selectedGradient.to} 75%, ${selectedGradient.to} 100%)`
+                : bgColor,
+              color: textColor,
+              padding: '2rem',
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 1. 胶片颗粒层 */}
+            {textureMode === 'film' && (
+              <div
+                className="absolute inset-0 pointer-events-none z-0"
+                style={{
+                  backgroundImage: `url(${grainUrl})`,
+                  backgroundSize: '200px 200px',
+                  opacity: 0.15,
+                  mixBlendMode: 'overlay'
+                }}
+              ></div>
+            )}
+
+            {/* 2. 内边框装饰 */}
+            <div className="absolute inset-4 border border-current opacity-20 pointer-events-none mix-blend-overlay z-0"></div>
+
+            {/* 3. 元素层 */}
             <DraggableElement
-              id="subtitle"
-              isSelected={selectedId === 'subtitle'}
-              offset={elements.subtitle.offset}
+              id="title"
+              isSelected={selectedId === 'title'}
+              offset={elements.title.offset}
               onSelect={setSelectedId}
               onDrag={(id, pos) => updateElement(id, 'offset', pos)}
               className="relative z-10 p-2"
             >
               {(() => {
-                const font = fontOptions.find(f => f.id === elements.subtitle.fontFamily) || fontOptions[0];
+                const font = fontOptions.find(f => f.id === elements.title.fontFamily) || fontOptions[0];
                 return (
-                  <p
-                    className="tracking-[0.2em] opacity-80 uppercase select-none font-serif whitespace-pre-wrap"
+                  <h1
+                    className="font-bold leading-tight select-none break-words whitespace-pre-wrap"
                     style={{
                       fontFamily: font.css,
                       fontWeight: font.weight,
-                      lineHeight: elements.subtitle.lineHeight,
-                      fontSize: `${1.5 * (elements.subtitle.fontSize / 100)}rem`
+                      textShadow: '0 2px 10px rgba(0,0,0,0.15)',
+                      lineHeight: elements.title.lineHeight,
+                      fontSize: `${4 * (elements.title.fontSize / 100)}rem`
                     }}
                   >
-                    {elements.subtitle.text}
-                  </p>
+                    {elements.title.text}
+                  </h1>
                 );
               })()}
             </DraggableElement>
-          )}
 
-          <DraggableElement
-            id="author"
-            isSelected={selectedId === 'author'}
-            offset={elements.author.offset}
-            onSelect={setSelectedId}
-            onDrag={(id, pos) => updateElement(id, 'offset', pos)}
-            className="absolute bottom-6 z-10 p-2"
-          >
-            {(() => {
-              const font = fontOptions.find(f => f.id === elements.author.fontFamily) || fontOptions[3];
-              return (
-                <div
-                  className="opacity-40 tracking-widest select-none whitespace-pre-wrap"
-                  style={{
-                    fontFamily: font.css,
-                    fontWeight: font.weight,
-                    lineHeight: elements.author.lineHeight,
-                    fontSize: `${0.75 * (elements.author.fontSize / 100)}rem`
-                  }}
-                >
-                  {elements.author.text}
-                </div>
-              );
-            })()}
-          </DraggableElement>
-        </div>
+            {elements.subtitle.text && (
+              <DraggableElement
+                id="subtitle"
+                isSelected={selectedId === 'subtitle'}
+                offset={elements.subtitle.offset}
+                onSelect={setSelectedId}
+                onDrag={(id, pos) => updateElement(id, 'offset', pos)}
+                className="relative z-10 p-2"
+              >
+                {(() => {
+                  const font = fontOptions.find(f => f.id === elements.subtitle.fontFamily) || fontOptions[0];
+                  return (
+                    <p
+                      className="tracking-[0.2em] opacity-80 uppercase select-none font-serif whitespace-pre-wrap"
+                      style={{
+                        fontFamily: font.css,
+                        fontWeight: font.weight,
+                        lineHeight: elements.subtitle.lineHeight,
+                        fontSize: `${1.5 * (elements.subtitle.fontSize / 100)}rem`
+                      }}
+                    >
+                      {elements.subtitle.text}
+                    </p>
+                  );
+                })()}
+              </DraggableElement>
+            )}
+
+            <DraggableElement
+              id="author"
+              isSelected={selectedId === 'author'}
+              offset={elements.author.offset}
+              onSelect={setSelectedId}
+              onDrag={(id, pos) => updateElement(id, 'offset', pos)}
+              className="absolute bottom-6 z-10 p-2"
+            >
+              {(() => {
+                const font = fontOptions.find(f => f.id === elements.author.fontFamily) || fontOptions[3];
+                return (
+                  <div
+                    className="opacity-40 tracking-widest select-none whitespace-pre-wrap"
+                    style={{
+                      fontFamily: font.css,
+                      fontWeight: font.weight,
+                      lineHeight: elements.author.lineHeight,
+                      fontSize: `${0.75 * (elements.author.fontSize / 100)}rem`
+                    }}
+                  >
+                    {elements.author.text}
+                  </div>
+                );
+              })()}
+            </DraggableElement>
+          </div>
+        )}
 
         <div className="absolute bottom-4 text-gray-400 text-xs bg-gray-100/80 px-2 py-1 rounded">
           本地模式：已启用本地字体和 Canvas 胶片颗粒
