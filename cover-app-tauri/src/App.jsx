@@ -165,7 +165,6 @@ const CoverGenerator = () => {
   // --- 字体库（使用本地字体） ---
   const fontOptions = [
     { id: 'huiwen', name: '汇文 (古籍明朝)', css: "'Huiwen-Mincho', serif", weight: 400 },
-    { id: 'jinghua-song', name: '京华老宋体', css: "'Jinghua-Song', serif", weight: 400 },
     { id: 'xiangcui-kesong', name: '香萃刻宋', css: "'Xiangcui-Kesong', serif", weight: 400 },
     { id: 'guyue-ming', name: '古越轩粗明', css: "'Guyue-Ming-Bold', serif", weight: 400 },
     { id: 'mf-langsong', name: '造字工房朗宋', css: "'MF-LangSong', serif", weight: 400 },
