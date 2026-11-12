@@ -12,11 +12,6 @@
 }
 
 /* 新增字体定义 */
-@font-face {
-  font-family: 'Jinghua-Song';
-  src: url('./assets/fonts/京華老宋体.ttf') format('truetype');
-  font-display: swap;
-}
 
 @font-face {
   font-family: 'Guyue-Ming-Bold';
